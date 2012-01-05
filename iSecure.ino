@@ -1,144 +1,77 @@
 #include <OneWire.h>
 
-OneWire ds1(5);
-OneWire ds2(6);  
-OneWire ds3(7);
-int groundOnewire[4]={1,2,3,4};
-int xSol=7;
-int ySol=10;
+OneWire ds(2);
+
 byte key[8];
-int location[2]={0};
 int keyready=false;
 const int Debug=true;
-byte unlockkey[3][4][9]={0};
+int checkPin[6]={3,4,5,6,7,8}
+int coilPin[6]={14,15,16,17,18,19}
+byte unlockkey[6][9]={0};
+
 
 void setup(void)
 {
-  for(int x=0;x<4;x++){
-    pinMode(groundOnewire[x],OUTPUT);
+  for(int x=0;x<6;x++){
+    pinMode(checkOne[x],OUTPUT);
+  }
+  for(int x=9;x<16;x++){
+    pinMode(x,OUTPUT);
   }
   Serial.begin(9600);
+  if(Debug){
+    Serial.println("Ready");
+  }
 }
 void loop(void)
 {
-  for(int x=0;x<4;x++){
-    location[0]=1;
-    if(!keyready){
-      digitalWrite(groundOnewire[x],LOW);
-      getKey1();
-      location[1]=x;
-      digitalWrite(groundOnewire[x],HIGH);
-    }
-  }
-  for(int x=0;x<4;x++){
-    location[0]=2;
-    if(!keyready){
-      digitalWrite(groundOnewire[x],LOW);
-      getKey2();
-      location[1]=x;
-      digitalWrite(groundOnewire[x],HIGH);
-    }
-  }
-  for(int x=0;x<4;x++){
-    location[0]=3;
-    if(!keyready){
-      digitalWrite(groundOnewire[x],LOW);
-      getKey3();
-      location[1]=x;
-      digitalWrite(groundOnewire[x],HIGH);
-    }
-  }
+  getKey();
   if(keyready){
     checkKeys();
   }
   if(Debug){
-    if(digitalRead(15)){
+    if(digitalRead(17)){
       reportSerial();
     }
   }
 }
 
-void getKey1(void){
+void getKey(void){
   byte present = 0;
   byte addr[8];
   int x;
-  if ( !ds1.search(addr)) {
-      ds1.reset_search();
+  if ( !ds.search(addr)) {
+      ds.reset_search();
       return;
   }
 
   if ( OneWire::crc8( addr, 7) != addr[7]) {
     if(Debug){  
-      Serial.print("DEBUG1: CRC invalid");
+      Serial.println("DEBUG1: CRC invalid");
     }
     return; 
   } 
   if(Debug){
-    Serial.print("DEBUG1: KEY Found");
+    Serial.println("DEBUG1: KEY Found");
   }
   for(x=0;x<8;x++){
     key[x]=addr[x];
   }
-  keyready=true;
-  ds1.reset_search();
-  ds1.reset();
-}
-
-void getKey2(void){
-  byte present = 0;
-  byte addr[8];
-  int x;
-  if ( !ds2.search(addr)) {
-      ds2.reset_search();
-      return;
-  }
-
-  if ( OneWire::crc8( addr, 7) != addr[7]) {
-    if(Debug){  
-      Serial.print("DEBUG2: CRC invalid");
+  for(x=0;x<6;x++){
+    KeyCheck=digitalRead(checkOne[x]);
+    if(!KeyCheck){
+      keyready=x;
+      break;
     }
-    return; 
-  } 
-  if(Debug){
-    Serial.print("DEBUG2: KEY Found");
   }
-  for(x=0;x<8;x++){
-    key[x]=addr[x];
-  }
-  keyready=true;
-  ds2.reset_search();
-  ds2.reset();
-}
-void getKey3(void){
-  byte present = 0;
-  byte addr[8];
-  int x;
-  if ( !ds3.search(addr)) {
-      ds3.reset_search();
-      return;
-  }
-
-  if ( OneWire::crc8( addr, 7) != addr[7]) {
-    if(Debug){  
-      Serial.print("DEBUG3: CRC invalid");
-    }
-    return; 
-  } 
-  if(Debug){
-    Serial.print("DEBUG3: KEY Found");
-  }
-  for(x=0;x<8;x++){
-    key[x]=addr[x];
-  }
-  keyready=true;
-  ds3.reset_search();
-  ds3.reset();
+  ds.reset_search();
+  ds.reset();
 }
 
 void checkKeys(void){
-  int x=location[0];
-  int y=location[1];
-  if(unlockkey[x][y][8]){
+  keyready=false;
+  for(int x=0;x<6;x++){
+  if(unlockkey[x][8]){
     int verify=0;
     for(int z=0;z<8;z++){
       if(key[z]==unlockkey[x][y][z]){
@@ -156,48 +89,41 @@ void checkKeys(void){
       }
     }
   }else{
-    setlock(x,y);
-    unlockkey[x][y][8]=1;
+    setlock(x);
+    unlockkey[x][8]=1;
     if(Debug){
       Serial.print(x);
-      Serial.print(", ");
-      Serial.print(y);
       Serial.print(" Locked with key ");
       for(int z=0;z<8;z++){
-        Serial.print(key[z]);
+        Serial.print(key[z], HEX);
       }
       Serial.println("");
     }
   }
+  }
 }
 
-void unlock(int boxX, int boxY){
-  boxX += xSol;
-  boxY += ySol;
-  digitalWrite(boxX, HIGH);
-  digitalWrite(boxY, LOW);
+void unlock(int loc){
+  digitalWrite(coilPin[loc], HIGH);
   delay(2000);
-  digitalWrite(boxX, LOW);
-  digitalWrite(boxY, HIGH);
+  digitalWrite(coilPin[loc], LOW);
 }
-void setlock(int boxX, int boxY){
+void setlock(int loc){
   for(int z = 0;z<8;z++){
-    unlockkey[boxX][boxY][z]=key[z];
+    unlockkey[loc][z]=key[z];
   }
 }
 void reportSerial(){
   if(Debug){
-    for(int x=0;x<3;x++){
-      for(int y=0;y<4;y++){
-        Serial.print(x+", "+y);
-        for(int z=0;z<8;z++){
-          Serial.print(unlockkey[x][y][z],HEX);
-        }
-        if(unlockkey[x][y][8]){
-          Serial.println(" - Locked");
-        }else{
-          Serial.println(" - Unlocked");
-        }
+    for(int x=0;x<6;x++){
+      Serial.print(x+" ");
+      for(int z=0;z<8;z++){
+        Serial.print(unlockkey[x][z],HEX);
+      }
+      if(unlockkey[x][8]){
+        Serial.println(" - Locked");
+      }else{
+        Serial.println(" - Unlocked");
       }
     }
   }
