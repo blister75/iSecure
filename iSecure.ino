@@ -1,22 +1,22 @@
 #include <OneWire.h>
+#include <EEPROM.h>
+
+#define totalBox 6
 
 OneWire ds(2);
 
-byte key[8];
-int keyready=false;
-const int Debug=true;
-int checkPin[6]={3,4,5,6,7,8}
-int coilPin[6]={14,15,16,17,18,19}
-byte unlockkey[6][9]={0};
 
+byte key[8];
+const int Debug=true;
+int coilPin[totalBox]={2,3,4,5,6,7};
+byte unlockkey[totalBox][9]={0};
+int greenLed=9;
+int redLed=10;
 
 void setup(void)
 {
-  for(int x=0;x<6;x++){
-    pinMode(checkOne[x],OUTPUT);
-  }
-  for(int x=9;x<16;x++){
-    pinMode(x,OUTPUT);
+  for(int x=0;x<totalBox;x++){
+    pinMode(coilPin[x],OUTPUT);
   }
   Serial.begin(9600);
   if(Debug){
@@ -25,8 +25,7 @@ void setup(void)
 }
 void loop(void)
 {
-  getKey();
-  if(keyready){
+  if(getkey()){
     checkKeys();
   }
   if(Debug){
@@ -36,20 +35,20 @@ void loop(void)
   }
 }
 
-void getKey(void){
+int getkey(void){
   byte present = 0;
   byte addr[8];
   int x;
   if ( !ds.search(addr)) {
       ds.reset_search();
-      return;
+      return false;
   }
 
   if ( OneWire::crc8( addr, 7) != addr[7]) {
     if(Debug){  
       Serial.println("DEBUG1: CRC invalid");
     }
-    return; 
+    return false; 
   } 
   if(Debug){
     Serial.println("DEBUG1: KEY Found");
@@ -57,74 +56,140 @@ void getKey(void){
   for(x=0;x<8;x++){
     key[x]=addr[x];
   }
-  for(x=0;x<6;x++){
-    KeyCheck=digitalRead(checkOne[x]);
-    if(!KeyCheck){
-      keyready=x;
-      break;
-    }
-  }
   ds.reset_search();
   ds.reset();
+  return true;
 }
 
 void checkKeys(void){
-  keyready=false;
-  for(int x=0;x<6;x++){
-  if(unlockkey[x][8]){
-    int verify=0;
-    for(int z=0;z<8;z++){
-      if(key[z]==unlockkey[x][y][z]){
-        verify++;
+  for(int x=0;x<totalBox;x++){
+    if(key[7]==unlockkey[x][7]){
+      int verify=0;
+      for(int y=0;y<7;y++){
+        if(key[y]==unlockkey[x][y]){
+          verify++;
+        }
       }
-    }
-    if(verify=8){
-      unlock(x,y);
-      unlockkey[x][y][8]=0;
-      if(Debug){
-        Serial.print(x);
-        Serial.print(", ");
-        Serial.print(y);
-        Serial.println(" Unlocked");
+      if(verify>6){
+        unlock(x);
+        return;
       }
-    }
-  }else{
-    setlock(x);
-    unlockkey[x][8]=1;
-    if(Debug){
-      Serial.print(x);
-      Serial.print(" Locked with key ");
-      for(int z=0;z<8;z++){
-        Serial.print(key[z], HEX);
-      }
-      Serial.println("");
     }
   }
+  for(int x=0;x<totalBox;x++){
+    if(!unlockkey[x][8]){
+      setlock(x);
+      return;
+    }
+  }
+  Serial.println("No Free Boxes");
+  digitalWrite(greenLed,LOW);
+  for(int x=0;x<10;x++){
+    digitalWrite(redLed,HIGH);
+    delay(500);
+    digitalWrite(redLed,LOW);
   }
 }
 
 void unlock(int loc){
   digitalWrite(coilPin[loc], HIGH);
-  delay(2000);
+  delay(1000);
   digitalWrite(coilPin[loc], LOW);
+  unreg(loc);
 }
 void setlock(int loc){
   for(int z = 0;z<8;z++){
     unlockkey[loc][z]=key[z];
   }
+  addEPPROM(loc);
 }
 void reportSerial(){
-  if(Debug){
-    for(int x=0;x<6;x++){
-      Serial.print(x+" ");
-      for(int z=0;z<8;z++){
-        Serial.print(unlockkey[x][z],HEX);
+  for(int x=0;x<totalBox;x++){
+    if(Debug){Serial.print(x+" ");}
+    for(int z=0;z<8;z++){
+      if(Debug){Serial.print(unlockkey[x][z],HEX);}
+    }
+    if(unlockkey[x][8]){
+      digitalWrite(coilPin[x],HIGH);
+      if(Debug){Serial.println(" - Locked");}
+    }else{
+      if(Debug){Serial.println(" - Unlocked");}
+    }
+  }
+  delay(1000);
+  for(int x=0;x<totalBox;x++){
+    digitalWrite(coilPin[x],LOW);
+  }
+}
+
+void unreg(int loc){
+  if(getkey()){
+    digitalWrite(greenLed, HIGH);
+    delay(750);
+    digitalWrite(greenLed, LOW);
+    int che=ds.reset();
+    digitalWrite(redLed, HIGH);
+    delay(750);
+    digitalWrite(redLed, LOW);
+    if(getkey() && !che){
+      if(Debug){
+        Serial.println(loc+" Unregistered");
       }
-      if(unlockkey[x][8]){
-        Serial.println(" - Locked");
-      }else{
-        Serial.println(" - Unlocked");
+      unlockkey[loc][8]=0;
+      removeEPPROM(loc);
+    }
+  }
+}
+
+void addEPPROM(int box){
+  int addr;
+  for(int x = 0;x<9;x++){
+    addr=(box*9)+x;
+    EEPROM.write(addr, unlockkey[box][x]);
+  }
+}
+
+void removeEPPROM(int box){
+    int addr=(box*9)+8;
+    EEPROM.write(addr, 0);
+}
+
+void loadall(){
+  int val=0;
+  int addr=0;
+  int reload=EEPROM.read(8);
+  if(reload<=0){
+    while(!setdefaults()){
+      digitalWrite(redLed,HIGH);
+      digitalWrite(greenLed,LOW);
+      delay(1000);
+      digitalWrite(redLed,LOW);
+      digitalWrite(greenLed,HIGH);
+    }
+  }else{
+    for(int y=0;y<totalBox;y++){
+      for(int z=0;z<9;z++){
+        addr=(y*9)+z;
+        val=EEPROM.read(addr);
+        unlockkey[y][z]=val;
       }
     }
   }
+}
+
+int setdefaults(){
+  while(!getkey()){
+    delay(500);
+  }
+  for(int x=0;x<8;x++){
+    unlockkey[0][x]=key[x];
+  }
+  while(!getkey()){
+    delay(500);
+  }
+  if(!(key[7]==unlockkey[0][7])){
+    return 0;
+  }
+  unlockkey[0][8]=1;
+  return 1;
 }
