@@ -1,17 +1,21 @@
+#define totalBox 6
+#define Debug 1
+
 #include <OneWire.h>
 #include <EEPROM.h>
 
-#define totalBox 6
-
 OneWire ds(2);
 
-
-byte key[8];
-const int Debug=true;
-int coilPin[totalBox]={2,3,4,5,6,7};
-byte unlockkey[totalBox][9]={0};
+//Pins for contact leds.
 int greenLed=9;
 int redLed=10;
+
+//Solinoid pins.
+int coilPin[totalBox]={2,3,4,5,6,7};
+
+//Session Key Storage
+byte unlockkey[totalBox][9]={0};
+byte key[8];
 
 void setup(void)
 {
@@ -19,9 +23,8 @@ void setup(void)
     pinMode(coilPin[x],OUTPUT);
   }
   Serial.begin(9600);
-  if(Debug){
-    Serial.println("Ready");
-  }
+  if(Debug){Serial.println("Ready");}
+  loadall();
 }
 void loop(void)
 {
@@ -71,6 +74,7 @@ void checkKeys(void){
         }
       }
       if(verify>6){
+        if(Debug){Serial.print(x+" Unlocked");}
         unlock(x);
         return;
       }
@@ -82,7 +86,7 @@ void checkKeys(void){
       return;
     }
   }
-  Serial.println("No Free Boxes");
+  if(Debug){Serial.println("No Free Boxes");}
   digitalWrite(greenLed,LOW);
   for(int x=0;x<10;x++){
     digitalWrite(redLed,HIGH);
@@ -101,7 +105,7 @@ void setlock(int loc){
   for(int z = 0;z<8;z++){
     unlockkey[loc][z]=key[z];
   }
-  addEPPROM(loc);
+  addEEPROM(loc);
 }
 void reportSerial(){
   for(int x=0;x<totalBox;x++){
@@ -124,24 +128,31 @@ void reportSerial(){
 
 void unreg(int loc){
   if(getkey()){
+    if(Debug){Serial.println(loc+" Prepaired for removal.");}
     digitalWrite(greenLed, HIGH);
-    delay(750);
-    digitalWrite(greenLed, LOW);
-    int che=ds.reset();
-    digitalWrite(redLed, HIGH);
-    delay(750);
-    digitalWrite(redLed, LOW);
-    if(getkey() && !che){
-      if(Debug){
-        Serial.println(loc+" Unregistered");
+    long interval=millis()+750;
+    while(!ds.reset()){
+      if(millis()>interval){
+        return;
       }
-      unlockkey[loc][8]=0;
-      removeEPPROM(loc);
     }
+    digitalWrite(greenLed, LOW);
+    digitalWrite(redLed, HIGH);
+    if(Debug){Serial.println(loc+" removal Step 2.");}
+    interval=millis()+750;
+    while(ds.reset()){
+      if(millis()>interval){
+        return;
+      }
+    }
+    digitalWrite(redLed, LOW);
+    removeEEPROM(loc);
+    unlockkey[loc][8]=0;
+    if(Debug){Serial.println(loc+" removed.");}
   }
 }
 
-void addEPPROM(int box){
+void addEEPROM(int box){
   int addr;
   for(int x = 0;x<9;x++){
     addr=(box*9)+x;
@@ -149,16 +160,21 @@ void addEPPROM(int box){
   }
 }
 
-void removeEPPROM(int box){
-    int addr=(box*9)+8;
-    EEPROM.write(addr, 0);
+void removeEEPROM(int box){
+  int addr=(box*9)+8;
+  if(Debug){Serial.println("Removing "+addr);}
+  EEPROM.write(addr, 0);
 }
 
 void loadall(){
+  if(Debug){Serial.println("Loading from EEPROM");}
   int val=0;
   int addr=0;
   int reload=EEPROM.read(8);
+  
+  if(Debug){Serial.println(reload);}
   if(reload<=0){
+    if(Debug){Serial.println("Setting Defaults");}
     while(!setdefaults()){
       digitalWrite(redLed,HIGH);
       digitalWrite(greenLed,LOW);
@@ -166,13 +182,19 @@ void loadall(){
       digitalWrite(redLed,LOW);
       digitalWrite(greenLed,HIGH);
     }
+    if(Debug){Serial.println("Done");}
+  }else if(reload>1){
+    if(Debug){Serial.println("EEPROM is not valid");Serial.println("Please Clear EEPROM with eeprom_clear program.");}
   }else{
+    if(Debug){Serial.println("Loading previous settings");}
     for(int y=0;y<totalBox;y++){
       for(int z=0;z<9;z++){
         addr=(y*9)+z;
         val=EEPROM.read(addr);
         unlockkey[y][z]=val;
+        if(Debug){Serial.print(val);}
       }
+      if(Debug){Serial.println(y+" set.");}
     }
   }
 }
